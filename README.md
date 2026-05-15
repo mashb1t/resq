@@ -152,6 +152,13 @@ Auto-sourced at startup with `set -a`, so any variable defined here is exported 
 sub-processes.
 See `.env.example` for the supported credential vars per backend.
 
+Optional runtime overrides:
+
+| Variable       | Default              | Purpose                                                         |
+|----------------|----------------------|-----------------------------------------------------------------|
+| `LOG_DIR`      | `<script-dir>/logs`  | Where per-run logs are written. Useful for `/var/log/resq` etc. |
+| `BIND_EXCLUDE` | (system paths regex) | Paths to skip during bind-mount auto-discovery.                 |
+
 ## Snapshot layout
 
 Every snapshot carries enough tags to find it without remembering filenames.

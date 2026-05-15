@@ -8,7 +8,6 @@ REPOS_CONF="$SCRIPT_DIR/repos.conf"
 ENV_FILE="$SCRIPT_DIR/.env"
 DUMP_DIR="/tmp/docker-dumps"
 COMPOSE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-LOG_DIR="$SCRIPT_DIR/logs"
 PARALLEL=false
 HOST=$(hostname)
 # Backrest-compatible identification: every snapshot is stamped with the
@@ -16,18 +15,21 @@ HOST=$(hostname)
 # "_unassociated_". Other tools ignore these tags.
 COMMON_TAGS=(--tag "plan:resq" --tag "instance:$HOST")
 
-mkdir -p "$LOG_DIR" "$DUMP_DIR"
-ENV_LIST_DIR=$(mktemp -d -t backup-envlists.XXXXXX)
-trap 'rm -rf "$ENV_LIST_DIR"' EXIT
-
 # Source config if env file exists. set -a auto-exports all variables
 # so credentials like B2_ACCOUNT_ID reach restic's subprocesses.
 if [ -f "$ENV_FILE" ]; then
   set -a; source "$ENV_FILE"; set +a
 fi
 
+# Where per-run logs are written (override in .env, e.g. LOG_DIR=/var/log/resq)
+LOG_DIR="${LOG_DIR:-$SCRIPT_DIR/logs}"
+
 # Default bind mount exclusions (override in .env)
 BIND_EXCLUDE="${BIND_EXCLUDE:-/etc/timezone|/etc/localtime|/etc/hosts|/etc/resolv.conf|/etc/hostname|/var/run/docker.sock|/dev/|/proc/|/sys/}"
+
+mkdir -p "$LOG_DIR" "$DUMP_DIR"
+ENV_LIST_DIR=$(mktemp -d -t backup-envlists.XXXXXX)
+trap 'rm -rf "$ENV_LIST_DIR"' EXIT
 
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 
