@@ -1,6 +1,6 @@
-# resq
+# 🚨 resq - before it's too late 🚨
 
-Restic backup via docker labels.
+Or short: Restic backup via docker labels.
 
 Add a `resq.enable=true` label on a docker container, and `resq` figures out the rest: which volumes and bind mounts to
 snapshot, how to take an application-consistent dump of the database it's running, which `.env` files in the compose
@@ -31,10 +31,13 @@ You can find a list of all labels and their purposes in the [configuration](#con
 
 ## Why this exists
 
-Personal story: I've fucked up my databases more than once by forgetting to update backup configs after adding new
-services, and the restore process (if even possible due to lack of backup)was always a nightmare of finding the right
-backup, copying it somewhere, and running `restic restore` with the right tags and paths. I wanted a backup solution
-that followed the infrastructure instead of adding manual work.
+Personal story: I've fucked up my databases more than once by forgetting to update backup configs after
+adding new services, and the restore process (if even possible due to lack of backup) was always a nightmare of finding
+the right backup, copying it somewhere, and running `restic restore` with the right tags and paths.
+
+It got so bad that at one point I even wrote about it [on LinkedIn](https://www.linkedin.com/posts/mashb1t_devops-backups-restic-share-7461136100397428736-y4Gh).
+
+I needed a backup solution that followed the infrastructure instead of adding manual work.
 
 Most backup tools work like this: like "back up these paths on this schedule".
 Container infrastructure should IMHO work like "back up the state of every running service without me touching the
@@ -66,7 +69,7 @@ Trade-offs:
 | Lines to read before trusting it             | ~400                                     | ~50k               | ~250k          | n/a                     | ~150                 |
 | Web UI                                       | ❌ (pair with Backrest as viewer)         | ✅                  | ✅              | ❌                       | ❌                    |
 
-`resq` is the simplest and most effective tool when the running docker compose stack *is* the source of truth for what 
+`resq` is the simplest and most effective tool when the running docker compose stack *is* the source of truth for what
 should be backed up, and you want backups to follow the infrastructure automatically.
 
 ## How it works
@@ -146,7 +149,7 @@ rclone). Credentials belong in `.env` (gitignored) rather than the `ENV_VARS` co
 ### `.env`
 
 Auto-sourced at startup with `set -a`, so any variable defined here is exported and reaches restic and its
-sub-processes. 
+sub-processes.
 See `.env.example` for the supported credential vars per backend.
 
 ## Snapshot layout
@@ -180,7 +183,8 @@ restic snapshots --tag env-files                       # all env-file captures
 
 ## Pairing with Backrest
 
-`resq` is CLI-only by design. For a web UI, point [Backrest](https://github.com/garethgeorge/backrest) at the same restic repositories as a read-only viewer:
+`resq` is CLI-only by design. For a web UI, point [Backrest](https://github.com/garethgeorge/backrest) at the same
+restic repositories as a read-only viewer:
 
 - Add each repo via *Add Repository* form in Backrest, password file `/restic-password`.
 - Don't create Backrest plans, let `resq` keep producing snapshots.
@@ -212,4 +216,4 @@ you need.
 
 ## License
 
-AGPL-3.0 — see [LICENSE](LICENSE).
+GPL-3.0 — see [LICENSE](LICENSE).
