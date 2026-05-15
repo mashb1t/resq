@@ -7,7 +7,6 @@ PASSWORD_FILE="$SCRIPT_DIR/.restic-password"
 REPOS_CONF="$SCRIPT_DIR/repos.conf"
 ENV_FILE="$SCRIPT_DIR/.env"
 DUMP_DIR="/tmp/docker-dumps"
-COMPOSE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PARALLEL=false
 HOST=$(hostname)
 # Backrest-compatible identification: every snapshot is stamped with the
@@ -55,14 +54,24 @@ read_container_labels() {
   DB_NAME=$(default_if_empty "$DB_NAME" "all")
   STOP=$(default_if_empty "$STOP" "false")
   BIND_MOUNTS=$(default_if_empty "$BIND_MOUNTS" "")
-  PROJECT_DIR=$(default_if_empty "$PROJECT_DIR" "$COMPOSE_DIR")
+  # Empty if the container has no compose-project label; callers that need
+  # filesystem-relative resolution (env discovery, relative bind mounts)
+  # check for non-empty before using it.
+  PROJECT_DIR=$(default_if_empty "$PROJECT_DIR" "")
 }
 
 path_excluded() { [[ "$1" =~ $BIND_EXCLUDE ]]; }
 
+# Returns the absolute path for $1, treating relative paths as relative to $2.
+# If $1 is relative but $2 is empty (no compose project context for this
+# container), prints the unresolved path so the caller can warn.
 resolve_bind_path() {
   local p="$1" dir="$2"
-  if [[ "$p" == ./* || "$p" == ../* ]]; then (cd "$dir" && realpath "$p"); else printf '%s' "$p"; fi
+  if [[ "$p" == ./* || "$p" == ../* ]]; then
+    [ -n "$dir" ] && (cd "$dir" && realpath "$p") || printf '%s' "$p"
+  else
+    printf '%s' "$p"
+  fi
 }
 
 add_backup() {  # path container kind db
@@ -212,11 +221,14 @@ dump_db() {
 # ── Collect data (once) ──
 rm -rf "$DUMP_DIR" && mkdir -p "$DUMP_DIR"
 
-CONTAINERS=$(docker ps -q --filter "label=backup.enable=true" || true)
+log "==> Config: HOST=$HOST  LOG_DIR=$LOG_DIR"
+
+CONTAINERS=$(docker ps -q --filter "label=resq.enable=true" || true)
 if [ -z "$CONTAINERS" ]; then
-  log "WARNING: No containers with backup.enable=true found"
+  log "WARNING: No containers with resq.enable=true found"
   exit 0
 fi
+log "==> Found $(echo "$CONTAINERS" | wc -w | tr -d ' ') container(s) with resq.enable=true"
 
 declare -a BACKUP_PATHS=() BACKUP_CONTAINER=() BACKUP_KIND=() BACKUP_DB=()
 declare -a DUMP_PATHS=() DUMP_CONTAINER=() DUMP_DB=()
@@ -228,8 +240,8 @@ for CID in $CONTAINERS; do
   log "==> $NAME (db=$DB_TYPE, stop=$STOP)"
 
   # Per-stack .env discovery (dedupe across containers sharing a compose project).
-  # Skip if no compose project label (PROJECT_DIR defaulted to COMPOSE_DIR).
-  if [ "$PROJECT_DIR" != "$COMPOSE_DIR" ] && [ -z "${ENV_SEEN[$PROJECT_DIR]:-}" ]; then
+  # Skip when there's no compose project label.
+  if [ -n "$PROJECT_DIR" ] && [ -z "${ENV_SEEN[$PROJECT_DIR]:-}" ]; then
     ENV_SEEN[$PROJECT_DIR]=1
     stack_name=$(basename "$PROJECT_DIR")
     envlist="$ENV_LIST_DIR/$stack_name"
@@ -264,6 +276,8 @@ for CID in $CONTAINERS; do
       if [ -d "$resolved" ] || [ -f "$resolved" ]; then
         log "    Bind mount (label): $resolved"
         add_backup "$resolved" "$NAME" "bind:$(basename "$resolved")" "db:$DB_TYPE"
+      elif [[ "$bind" == ./* || "$bind" == ../* ]] && [ -z "$PROJECT_DIR" ]; then
+        log "    WARNING: Bind mount '$bind' is relative but container has no compose-project label — use an absolute path in resq.bind-mounts"
       else
         log "    WARNING: Bind mount not found: $resolved"
       fi

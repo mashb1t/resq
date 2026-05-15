@@ -113,8 +113,8 @@ echo "0 3 * * *  /path/to/resq.sh >> /var/log/resq.log 2>&1" | crontab -
 
 Requirements on the host:
 
-- `restic` (1.7+ recommended)
-- `bash` 4+, `docker` CLI
+- `restic` (0.18.0+ recommended)
+- `bash`, `docker`
 - Network access to whatever backends are listed in `repos.conf`
 
 The script auto-runs `restic init` on first push to an empty repo, so no manual bootstrap per backend.
@@ -158,6 +158,10 @@ Optional runtime overrides:
 |----------------|----------------------|-----------------------------------------------------------------|
 | `LOG_DIR`      | `<script-dir>/logs`  | Where per-run logs are written. Useful for `/var/log/resq` etc. |
 | `BIND_EXCLUDE` | (system paths regex) | Paths to skip during bind-mount auto-discovery.                 |
+
+Containers that have no `com.docker.compose.project.working_dir` label (e.g. started by `docker run` rather than
+`docker compose up`) skip `.env` discovery, and any relative path in `resq.bind-mounts` is logged as a warning — use
+absolute paths in the label for those.
 
 ## Snapshot layout
 
