@@ -1,0 +1,82 @@
+# Multi-repo configuration for restic backups
+#
+# Format: NAME|REPO_URL|ENV_VARS|DAILY|WEEKLY|MONTHLY
+#   NAME        Free-form label, appears in logs/snapshots.
+#   REPO_URL    Restic repository URL (see backends below).
+#   ENV_VARS    Comma-separated KEY=VALUE pairs exported just for this repo.
+#               Leave empty (||) if credentials are global in .env.
+#   DAILY       Retention: snapshots kept per day (default 7).
+#   WEEKLY      Retention: snapshots kept per week (default 4).
+#   MONTHLY     Retention: snapshots kept per month (default 6).
+#
+# Lines beginning with # are comments. Blank lines are ignored.
+# Credentials are best kept in backup/.env (gitignored) rather than here.
+# The script auto-runs `restic init` on the first run if a repo doesn't
+# yet exist at the URL.
+
+# ── 1. Local filesystem ──
+# A directory on the same host (or a mounted network share).
+# No credentials needed. Backups happen at filesystem speed.
+#Local|/mnt/usb/restic||7|4|6
+
+# ── 2. SFTP (recommended for self-hosted NAS / remote Linux box) ──
+# Auth is via ~/.ssh/config and ssh-agent / key files. No password
+# storage here. The "user@" prefix is optional if ~/.ssh/config sets a
+# default user for the host alias.
+#NAS|sftp:<host-alias>:/path/to/repo||7|4|2
+#REMOTE|sftp:<user>@<host>:/path/to/repo||7|4|2
+
+# ── 3. REST server (rest-server, https://github.com/restic/rest-server) ──
+# Embed credentials in the URL OR use REST_USERNAME / REST_PASSWORD env.
+# For TLS, the server must present a cert your CA bundle trusts.
+#REST|rest:https://user:pass@restic.example.com/repo||7|4|6
+
+# ── 4. Backblaze B2 ──
+# Create an application key restricted to one bucket. Set in .env:
+#   B2_ACCOUNT_ID=<keyID>          (NOT your master account ID)
+#   B2_ACCOUNT_KEY=<applicationKey>
+# URL format: b2:<bucket>:<path-prefix>
+#B2|b2:<bucket-name>:<path-prefix>||7|4|2
+
+# ── 5. AWS S3 ──
+# Set in .env:
+#   AWS_ACCESS_KEY_ID=
+#   AWS_SECRET_ACCESS_KEY=
+#   AWS_DEFAULT_REGION=eu-central-1   (optional, can be inferred from host)
+# URL format: s3:s3.<region>.amazonaws.com/<bucket>/<path>
+#S3|s3:s3.eu-central-1.amazonaws.com/my-bucket/docker||7|4|6
+
+# ── 6. S3-compatible (MinIO, Wasabi, Backblaze S3-API, Cloudflare R2, …) ──
+# Same env vars as AWS S3. URL points to the custom endpoint.
+#Wasabi|s3:s3.eu-central-1.wasabisys.com/my-bucket/docker||7|4|6
+#R2|s3:<account>.r2.cloudflarestorage.com/my-bucket/docker||7|4|6
+#MinIO|s3:https://minio.lan:9000/my-bucket/docker||7|4|6
+
+# ── 7. Microsoft Azure Blob Storage ──
+# Set in .env:
+#   AZURE_ACCOUNT_NAME=
+#   AZURE_ACCOUNT_KEY=         (or AZURE_ACCOUNT_SAS for a SAS token)
+# URL format: azure:<container>:<path>
+#Azure|azure:my-container:docker||7|4|6
+
+# ── 8. Google Cloud Storage ──
+# Set in .env:
+#   GOOGLE_PROJECT_ID=
+#   GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+# URL format: gs:<bucket>:<path>
+#GCS|gs:my-bucket:docker||7|4|6
+
+# ── 9. OpenStack Swift ──
+# Set OS_* env vars per your provider (Hetzner, OVH, …).
+#Swift|swift:my-container:docker||7|4|6
+
+# ── 10. rclone (bridge to any rclone remote) ──
+# Configure the remote with `rclone config` first, then refer to it by name.
+# Useful for backends restic doesn't natively support (Dropbox, Mega, etc.).
+#Rclone|rclone:my-remote:docker||7|4|6
+
+# ── Per-repo credential override (advanced) ──
+# If you really must keep credentials in this file, use the ENV_VARS column.
+# Multiple repos in one file can then use distinct credentials. NOT
+# recommended — repos.conf is committed to git, .env is gitignored.
+#S3Alt|s3:s3.amazonaws.com/other-bucket/docker|AWS_ACCESS_KEY_ID=AKIA…,AWS_SECRET_ACCESS_KEY=…|7|4|6
