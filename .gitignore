@@ -1,3 +1,5 @@
 .env
 .restic-password
 repos.conf
+
+logs
