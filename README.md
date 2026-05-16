@@ -155,7 +155,7 @@ crontab -u backupuser -e
 # Nightly backup:
 0 3 * * *  /path/to/resq.sh
 # Optional: weekly prune on a single designated host (see Multi-host setups):
-0 4 * * 0  [ "$(hostname)" = "vps" ] && /path/to/resq.sh --prune-only
+0 4 * * 0  [ "$(hostname)" = "your-maintenance-host" ] && /path/to/resq.sh --prune-only
 ```
 
 Trade-off: `cap_dac_read_search` lets restic read *any* file. Anyone who can exec restic as
@@ -286,7 +286,7 @@ Two-line setup for multi-host setups: nightly backup on every host, weekly prune
 
 # Weekly prune (one designated host only — e.g. guard with hostname check
 # if you ship the same crontab to every host)
-0 4 * * 0      [ "$(hostname)" = "vps" ] && /opt/resq/resq.sh --prune-only
+0 4 * * 0      [ "$(hostname)" = "your-maintenance-host" ] && /opt/resq/resq.sh --prune-only
 ```
 
 The script's own retention (`DAILY|WEEKLY|MONTHLY` in `repos.conf`) handles forgetting per host, so the nightly entry is all you need on each host. The prune entry only needs to fire from one host because `restic prune` is repo-wide — it reclaims unreferenced packs from every host's forgotten snapshots in one pass.
