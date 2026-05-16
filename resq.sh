@@ -1,6 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ── Args ──
+PRUNE_ONLY=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --prune-only) PRUNE_ONLY=true; shift ;;
+    -h|--help)
+      cat <<'EOF'
+Usage: resq.sh [--prune-only]
+
+Default mode (backup):
+  Discover containers with label resq.enable=true, dump DBs, back up
+  volumes and bind mounts to each repo in repos.conf, then run
+  `restic forget --host <hostname>` per repo. Pruning is opt-in via
+  PRUNE=true in .env (takes an exclusive lock — only safe for
+  single-host repos or when no other host is backing up).
+
+--prune-only:
+  Skip backup entirely; just run `restic prune` against each repo in
+  repos.conf. Use from a single designated host on a weekly-ish
+  schedule to reclaim space from snapshots forgotten by all hosts.
+EOF
+      exit 0
+      ;;
+    *) echo "Unknown arg: $1 (use --help)" >&2; exit 2 ;;
+  esac
+done
+
 # ── Config ──
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PASSWORD_FILE="$SCRIPT_DIR/.restic-password"
@@ -218,24 +245,27 @@ dump_db() {
   fi
 }
 
-# ── Collect data (once) ──
-rm -rf "$DUMP_DIR" && mkdir -p "$DUMP_DIR"
-
-log "==> Config: HOST=$HOST  LOG_DIR=$LOG_DIR  PRUNE=${PRUNE:-false}"
-
-CONTAINERS=$(docker ps -q --filter "label=resq.enable=true" || true)
-if [ -z "$CONTAINERS" ]; then
-  log "WARNING: No containers with resq.enable=true found"
-  exit 0
-fi
-log "==> Found $(echo "$CONTAINERS" | wc -w | tr -d ' ') container(s) with resq.enable=true"
-
+# ── Collect data (once) — backup mode only ──
 declare -a BACKUP_PATHS=() BACKUP_CONTAINER=() BACKUP_KIND=() BACKUP_DB=()
 declare -a DUMP_PATHS=() DUMP_CONTAINER=() DUMP_DB=()
 declare -a ENV_STACK=() ENV_FILES=()
 declare -A ENV_SEEN=()
 
-for CID in $CONTAINERS; do
+if [ "$PRUNE_ONLY" = true ]; then
+  log "==> Config: HOST=$HOST  LOG_DIR=$LOG_DIR  MODE=prune-only"
+else
+  log "==> Config: HOST=$HOST  LOG_DIR=$LOG_DIR  MODE=backup  PRUNE=${PRUNE:-false}"
+
+  rm -rf "$DUMP_DIR" && mkdir -p "$DUMP_DIR"
+
+  CONTAINERS=$(docker ps -q --filter "label=resq.enable=true" || true)
+  if [ -z "$CONTAINERS" ]; then
+    log "WARNING: No containers with resq.enable=true found"
+    exit 0
+  fi
+  log "==> Found $(echo "$CONTAINERS" | wc -w | tr -d ' ') container(s) with resq.enable=true"
+
+  for CID in $CONTAINERS; do
   read_container_labels "$CID"
   log "==> $NAME (db=$DB_TYPE, stop=$STOP)"
 
@@ -295,7 +325,8 @@ for CID in $CONTAINERS; do
 
   # 5. Restart if stopped
   [ "$STOP" = "true" ] && { log "    Starting container"; docker start "$CID"; }
-done
+  done
+fi
 
 # ── Push to each repo ──
 backup_to_repo() {
@@ -382,9 +413,41 @@ backup_to_repo() {
   log "==> [$name] Complete"
 }
 
+# Repo-wide reclamation. Takes an exclusive lock, so a designated host
+# should run this on its own schedule, outside other hosts' backup windows.
+prune_repo() {
+  local idx="$1"
+  local name="${REPO_NAMES[$idx]}"
+  local url="${REPO_URLS[$idx]}"
+  local envs="${REPO_ENVS[$idx]}"
+  local logfile="$LOG_DIR/${name}_prune_${TIMESTAMP}.log"
+
+  if [ -n "$envs" ]; then
+    IFS=',' read -ra PAIRS <<< "$envs"
+    for pair in "${PAIRS[@]}"; do
+      export "${pair?}"
+    done
+  fi
+  export RESTIC_REPOSITORY="$url" RESTIC_PASSWORD_FILE="$PASSWORD_FILE"
+
+  log "==> [$name] Pruning $url"
+  run_restic "prune" prune || return 1
+  log "==> [$name] Prune complete"
+}
+
 # ── Run (parallel or sequential) ──
 FAILED=0
-if [ "$PARALLEL" = true ]; then
+if [ "$PRUNE_ONLY" = true ]; then
+  # Always sequential for prune — each prune holds an exclusive lock, so
+  # running them in parallel would only serialize them at the restic layer
+  # and obscure failures.
+  for i in "${!REPO_NAMES[@]}"; do
+    if ! prune_repo "$i"; then
+      log "WARNING: ${REPO_NAMES[$i]} prune failed — continuing with next repo"
+      FAILED=$((FAILED + 1))
+    fi
+  done
+elif [ "$PARALLEL" = true ]; then
   for i in "${!REPO_NAMES[@]}"; do backup_to_repo "$i" & done
   wait
 else

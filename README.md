@@ -227,22 +227,26 @@ blocks every other host on the repo for the duration. The recommended pattern:
 
 - Nightly on every host: `./resq.sh` with `PRUNE=false` (default) — fast, no cross-host conflicts.
 - Weekly on a single designated host, scheduled outside other hosts' backup windows:
-  - either `PRUNE=true ./resq.sh` to roll prune into a regular run, or
-  - run `restic -r <repo> prune` directly for each repo without doing a fresh backup.
+  - `./resq.sh --prune-only` — skips backup entirely, just runs `restic prune` against every repo in `repos.conf`. Logs land at `$LOG_DIR/<repo>_prune_<timestamp>.log` so prune runs are easy to tell apart from backup runs.
+  - or `PRUNE=true ./resq.sh` to roll prune into a regular backup run.
 
 If you only have one host writing to the repo, just set `PRUNE=true` everywhere — there's no
 contention to avoid.
 
 ## Cron
 
-Run nightly:
+Two-line setup for multi-host setups: nightly backup on every host, weekly prune on a single designated host.
 
 ```cron
-0 3 * * *  /opt/resq/backup.sh >> /var/log/resq.log 2>&1
+# Nightly backup (every host)
+0 3 * * *      /opt/resq/resq.sh
+
+# Weekly prune (one designated host only — e.g. guard with hostname check
+# if you ship the same crontab to every host)
+0 4 * * 0      [ "$(hostname)" = "vps" ] && /opt/resq/resq.sh --prune-only
 ```
 
-The script's own retention (`DAILY|WEEKLY|MONTHLY` in `repos.conf`) handles forgetting, so a single cron entry is all
-you need.
+The script's own retention (`DAILY|WEEKLY|MONTHLY` in `repos.conf`) handles forgetting per host, so the nightly entry is all you need on each host. The prune entry only needs to fire from one host because `restic prune` is repo-wide — it reclaims unreferenced packs from every host's forgotten snapshots in one pass.
 
 ## License
 
