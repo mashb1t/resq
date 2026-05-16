@@ -7,7 +7,7 @@ snapshot, how to take an application-consistent dump of the database it's runnin
 stack to capture, and which restic backends to push to.
 
 ```yaml
-# in any docker-compose.yml
+# in any docker-compose.yaml
 # backs up .env files, volumes, and bind mounts of this container
 labels:
   - "resq.enable=true"
@@ -115,6 +115,7 @@ Requirements on the host:
 
 - `restic` (0.18.0+ recommended)
 - `bash`, `docker`
+- `sqlite3` CLI for sqlite dumps (optional, only if using `resq.db.type=sqlite`)
 - Network access to whatever backends are listed in `repos.conf`
 
 The script auto-runs `restic init` on first push to an empty repo, so no manual bootstrap per backend.
@@ -154,10 +155,12 @@ See `.env.example` for the supported credential vars per backend.
 
 Optional runtime overrides:
 
-| Variable       | Default              | Purpose                                                         |
-|----------------|----------------------|-----------------------------------------------------------------|
-| `LOG_DIR`      | `<script-dir>/logs`  | Where per-run logs are written. Useful for `/var/log/resq` etc. |
-| `BIND_EXCLUDE` | (system paths regex) | Paths to skip during bind-mount auto-discovery.                 |
+| Variable       | Default              | Purpose                                                                                                                                                                                  |
+|----------------|----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `LOG_DIR`      | `<script-dir>/logs`  | Where per-run logs are written. Useful for `/var/log/resq` etc.                                                                                                                          |
+| `BIND_EXCLUDE` | (system paths regex) | Paths to skip during bind-mount auto-discovery.                                                                                                                                          |
+| `TMPDIR`       | `/tmp`               | Where restic stages packs during backup. Override on hosts where `/tmp` is a small tmpfs (typical on SBCs / Raspberry Pi) — e.g. `TMPDIR=/var/cache/restic-tmp` on real disk.             |
+| `PRUNE`        | `false`              | If `true`, `forget` is followed by `--prune` (takes an exclusive lock on the repo). Leave as default for hosts that share a repo — run prune from a single designated host on a separate schedule. |
 
 Containers that have no `com.docker.compose.project.working_dir` label (e.g. started by `docker run` rather than
 `docker compose up`) skip `.env` discovery, and any relative path in `resq.bind-mounts` is logged as a warning — use
@@ -212,7 +215,23 @@ Multiple hosts can write into the same restic repository safely:
 
 - Same `.restic-password` deployed to every host.
 - restic deduplicates content blobs across hosts (one copy of identical files).
-- `restic forget` is invoked with `--host "$(hostname)"`, so each host only prunes snapshots it produced.
+- `restic forget` is invoked with `--host "$(hostname)"`, so each host only forgets snapshots it produced.
+
+By default the per-run retention call is `forget` only — no `--prune`. That keeps every host's
+nightly run on a fast non-exclusive lock that never conflicts with concurrent backups from other
+hosts. The trade-off: snapshots get marked as forgotten but the pack files they reference aren't
+reclaimed until someone runs `restic prune`.
+
+Pruning is opt-in via `PRUNE=true` in `.env`, because `forget --prune` takes an EXCLUSIVE lock that
+blocks every other host on the repo for the duration. The recommended pattern:
+
+- Nightly on every host: `./resq.sh` with `PRUNE=false` (default) — fast, no cross-host conflicts.
+- Weekly on a single designated host, scheduled outside other hosts' backup windows:
+  - either `PRUNE=true ./resq.sh` to roll prune into a regular run, or
+  - run `restic -r <repo> prune` directly for each repo without doing a fresh backup.
+
+If you only have one host writing to the repo, just set `PRUNE=true` everywhere — there's no
+contention to avoid.
 
 ## Cron
 

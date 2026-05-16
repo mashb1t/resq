@@ -221,7 +221,7 @@ dump_db() {
 # ── Collect data (once) ──
 rm -rf "$DUMP_DIR" && mkdir -p "$DUMP_DIR"
 
-log "==> Config: HOST=$HOST  LOG_DIR=$LOG_DIR"
+log "==> Config: HOST=$HOST  LOG_DIR=$LOG_DIR  PRUNE=${PRUNE:-false}"
 
 CONTAINERS=$(docker ps -q --filter "label=resq.enable=true" || true)
 if [ -z "$CONTAINERS" ]; then
@@ -360,13 +360,24 @@ backup_to_repo() {
       --tag "$stk" --tag "env-files" || return 1
   done
 
-  # Retention — host-scoped so multi-server repos don't cross-prune
-  log "    [$name] Pruning host=$HOST (daily=$daily, weekly=$weekly, monthly=$monthly)"
-  run_restic "forget/prune" forget --host "$HOST" \
-    --keep-daily "$daily" \
-    --keep-weekly "$weekly" \
-    --keep-monthly "$monthly" \
-    --prune || return 1
+  # Retention — host-scoped so multi-server repos don't cross-prune.
+  # `forget` alone takes a non-exclusive lock and never conflicts with
+  # concurrent backups from other hosts. `--prune` (opt-in via PRUNE=true
+  # in .env) takes an EXCLUSIVE lock that blocks every other host until
+  # done — run it from one designated host on a separate schedule.
+  local -a forget_args=(
+    --host "$HOST"
+    --keep-daily "$daily"
+    --keep-weekly "$weekly"
+    --keep-monthly "$monthly"
+  )
+  local op_desc="forget host=$HOST"
+  if [ "${PRUNE:-false}" = "true" ]; then
+    forget_args+=( --prune )
+    op_desc="forget+prune host=$HOST"
+  fi
+  log "    [$name] $op_desc (daily=$daily, weekly=$weekly, monthly=$monthly)"
+  run_restic "$op_desc" forget "${forget_args[@]}" || return 1
 
   log "==> [$name] Complete"
 }
