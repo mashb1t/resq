@@ -120,6 +120,49 @@ Requirements on the host:
 
 The script auto-runs `restic init` on first push to an empty repo, so no manual bootstrap per backend.
 
+## Running as a non-root user
+
+`resq` doesn't need root. The two privileges it actually requires can be granted to a dedicated
+backup user without `sudo` in the hot path:
+
+- **Docker API access** — `docker ps / inspect / exec / stop / start` need to talk to the daemon
+  socket. Add the backup user to the `docker` group (or point `DOCKER_HOST` at a socket-proxy if
+  you want least-privilege).
+- **Reading root-owned bind mounts** — most compose stacks create `./volumes/*` as `root:root`
+  (the container's own user). Grant restic (and `sqlite3`, if you use the sqlite dump type) the
+  `cap_dac_read_search` capability so they can read any file regardless of owner/mode. One-time,
+  persistent across reboots, no per-path ACL maintenance:
+
+```sh
+sudo useradd --system --create-home --shell /bin/bash backupuser
+sudo usermod -aG docker backupuser
+
+sudo setcap cap_dac_read_search+ep "$(command -v restic)"
+sudo setcap cap_dac_read_search+ep "$(command -v sqlite3)"      # only if using resq.db.type=sqlite
+getcap "$(command -v restic)"                                   # verify: cap_dac_read_search=ep
+
+sudo chown -R backupuser:backupuser /path/to/resq
+sudo chmod 600 /path/to/resq/.env /path/to/resq/.restic-password
+```
+
+Re-apply the `setcap` after a restic / sqlite3 package upgrade — package managers replace the
+binary and the capability doesn't carry over.
+
+Then schedule from the user's own crontab (no `root` anywhere):
+
+```sh
+crontab -u backupuser -e
+# Nightly backup:
+0 3 * * *  /path/to/resq.sh
+# Optional: weekly prune on a single designated host (see Multi-host setups):
+0 4 * * 0  [ "$(hostname)" = "vps" ] && /path/to/resq.sh --prune-only
+```
+
+Trade-off: `cap_dac_read_search` lets restic read *any* file. Anyone who can exec restic as
+`backupuser` can effectively read the whole filesystem. In a homelab / single-admin context that
+matches root's existing reach. In a multi-user environment, prefer per-path ACLs
+(`setfacl -R -m u:backupuser:rX /path/to/volumes`) instead.
+
 ## Configuration
 
 ### Docker labels
