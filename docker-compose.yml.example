@@ -32,3 +32,5 @@ services:
       start_period: 30s
     labels:
       - "resq.enable=true"
+      - 'wud.tag.include=^v\d+\.\d+\.\d+$$'
+      - 'wud.link.template=https://github.com/garethgeorge/backrest/releases/tag/$${original}'
